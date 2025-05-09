@@ -7,12 +7,10 @@ const path = require("path");
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const { enviarCorreoRegistro, enviarCorreoAcceso, enviarCorreoRecuperacion, enviarCorreoBienvenida } = require('./config/mailer');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
-
 
 // Conexión a MongoDB
 mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/registro-huellas", {
@@ -73,8 +71,6 @@ const UserSchema = new mongoose.Schema({
   correoInstitucional: String,
   password: String,
   role: String,
-  resetPasswordToken: String,
-  resetPasswordExpires: Date,
   __v: Number
 });
 
@@ -269,11 +265,7 @@ app.post("/api/register", async (req, res) => {
       role
     });
     await newUser.save();
-
-    // Enviar correo de confirmación con la contraseña original
-    await enviarCorreoRegistro(newUser, password);
-
-    res.status(201).json({ message: "✅ Usuario registrado exitosamente" });
+    res.json({ message: "✅ Usuario registrado correctamente" });
   } catch (error) {
     console.error("Error en el registro:", error);
     if (error.code === 11000) {
@@ -352,22 +344,12 @@ app.post("/api/login", async (req, res) => {
 // 📌 Ruta para guardar datos en MongoDB (con imagen)
 app.post("/api/save", upload.single("imagen"), async (req, res) => {
   try {
-    console.log('[GUARDAR] Iniciando guardado de registro con imagen');
     let imagenBuffer = null;
     let imagenMimeType = null;
-    
     if (req.file) {
-      console.log('[GUARDAR] Imagen recibida:', {
-        originalName: req.file.originalname,
-        mimeType: req.file.mimetype,
-        size: req.file.size
-      });
       imagenBuffer = req.file.buffer;
       imagenMimeType = req.file.mimetype;
-    } else {
-      console.log('[GUARDAR] No se recibió imagen');
     }
-
     const huella = new Huella({
       ...req.body,
       imagen: imagenBuffer,
@@ -375,42 +357,26 @@ app.post("/api/save", upload.single("imagen"), async (req, res) => {
       fecha: new Date().toLocaleDateString(),
       hora: new Date().toLocaleTimeString()
     });
-
     // Validar que los campos requeridos no estén vacíos
     const camposRequeridos = [
       'nombre', 'apellido', 'fechaNacimiento', 'idInstitucional', 
       'cedula', 'rolUniversidad', 'correoPersonal', 'carnet'
     ];
-    
     for (const campo of camposRequeridos) {
       if (!huella[campo]) {
-        console.log('[GUARDAR] Error: Campo requerido faltante:', campo);
       return res.status(400).json({ 
           error: `El campo ${campo} es requerido`,
           detalles: `Valor recibido: ${huella[campo]}`
       });
     }
     }
-
     const savedHuella = await huella.save();
-    console.log('[GUARDAR] Registro guardado exitosamente:', {
-      id: savedHuella._id,
-      tieneImagen: !!savedHuella.imagen,
-      mimeType: savedHuella.imagenMimeType
-    });
-
-    // Enviar correo de bienvenida si tiene correo institucional o personal
-    if ((savedHuella.tieneCorreoInstitucional === 'si' && savedHuella.correoInstitucional) || 
-        savedHuella.correoPersonal) {
-      await enviarCorreoBienvenida(savedHuella);
-    }
-
     res.status(200).json({ 
       message: "Datos guardados correctamente",
       huella: savedHuella 
     });
   } catch (error) {
-    console.error("[GUARDAR] Error al guardar los datos:", error);
+    console.error("Error al guardar los datos:", error);
     res.status(500).json({ 
       error: "Error al guardar los datos",
       detalles: error.message 
@@ -485,10 +451,8 @@ app.use('/api/uploads', express.static('uploads'));
 app.get("/api/buscar-carnet/:carnet", async (req, res) => {
   try {
     const { carnet } = req.params;
-    console.log('[BUSCAR] Buscando persona con carnet/tarjeta:', carnet);
     
     if (!carnet) {
-      console.log('[BUSCAR] Error: Carnet no proporcionado');
       return res.status(400).json({ 
         error: "❌ El número de carnet es requerido" 
       });
@@ -496,32 +460,19 @@ app.get("/api/buscar-carnet/:carnet", async (req, res) => {
 
     // Buscar por carnet (usuarios normales) o numeroTarjeta (visitantes)
     const persona = await Huella.findOne({ $or: [ { carnet }, { numeroTarjeta: carnet } ] });
-    console.log('[BUSCAR] Resultado de búsqueda:', {
-      encontrado: !!persona,
-      id: persona?._id,
-      tieneImagen: !!persona?.imagen,
-      carnet: persona?.carnet,
-      numeroTarjeta: persona?.numeroTarjeta
-    });
 
     if (persona) {
-      // Asegurarnos de que el _id esté incluido en la respuesta
-      const personaResponse = persona.toObject();
-      personaResponse._id = persona._id;
-      
-      console.log('[BUSCAR] Enviando respuesta con ID:', personaResponse._id);
       res.json({ 
-        persona: personaResponse,
+        persona,
         message: "✅ Persona encontrada" 
       });
     } else {
-      console.log('[BUSCAR] Persona no encontrada');
       res.status(404).json({ 
         error: "❌ Persona no encontrada" 
       });
     }
   } catch (error) {
-    console.error("[BUSCAR] Error al buscar por carnet:", error);
+    console.error("Error al buscar por carnet:", error);
     res.status(500).json({ 
       error: "❌ Error al buscar en la base de datos" 
     });
@@ -594,29 +545,14 @@ app.post("/api/registrar-acceso", async (req, res) => {
         carnet: persona.carnet || '',
         numeroTarjeta: persona.numeroTarjeta || '',
         fecha: fechaHoy,
-        horaEntrada: hoy.toTimeString().split(' ')[0],
-        correoInstitucional: persona.correoInstitucional
+        horaEntrada: hoy.toTimeString().split(' ')[0]
       });
       await nuevoAcceso.save();
-
-      // Enviar correo de entrada
-      await enviarCorreoAcceso({
-        ...nuevoAcceso.toObject(),
-        tipo: 'entrada'
-      });
-
       return res.status(200).json({ message: "✅ Entrada registrada", tipo: "entrada", acceso: nuevoAcceso });
     } else {
       // Registrar salida
       accesoAbierto.horaSalida = hoy.toTimeString().split(' ')[0];
       await accesoAbierto.save();
-
-      // Enviar correo de salida
-      await enviarCorreoAcceso({
-        ...accesoAbierto.toObject(),
-        tipo: 'salida'
-      });
-
       return res.status(200).json({ message: "✅ Salida registrada", tipo: "salida", acceso: accesoAbierto });
     }
   } catch (error) {
@@ -708,88 +644,17 @@ app.get('/api/personas', async (req, res) => {
 // Endpoint para servir la imagen desde la base de datos
 app.get('/api/huellas/:id/imagen', async (req, res) => {
   try {
-    console.log('[IMAGEN] Solicitud de imagen recibida para ID:', req.params.id);
-    
     const huella = await Huella.findById(req.params.id);
-    console.log('[IMAGEN] Huella encontrada:', {
-      tieneImagen: !!huella?.imagen,
-      mimeType: huella?.imagenMimeType,
-      tamañoImagen: huella?.imagen?.length
-    });
-
     if (!huella || !huella.imagen) {
-      console.log('[IMAGEN] Error: Imagen no encontrada');
       return res.status(404).send('Imagen no encontrada');
     }
-
-    console.log('[IMAGEN] Enviando imagen con tipo:', huella.imagenMimeType || 'image/jpeg');
     res.set('Content-Type', huella.imagenMimeType || 'image/jpeg');
     res.send(huella.imagen);
   } catch (err) {
-    console.error('[IMAGEN] Error al obtener la imagen:', err);
     res.status(500).send('Error al obtener la imagen');
-  }
-});
-
-// Nueva ruta para recuperación de contraseña
-app.post("/api/recuperar-password", async (req, res) => {
-  try {
-    const { correoInstitucional } = req.body;
-    
-    const usuario = await User.findOne({ correoInstitucional });
-    if (!usuario) {
-      return res.status(404).json({ error: "❌ Usuario no encontrado" });
-    }
-
-    // Generar token de recuperación
-    const token = crypto.randomBytes(32).toString('hex');
-    const tokenExpira = new Date();
-    tokenExpira.setHours(tokenExpira.getHours() + 1);
-
-    // Guardar token en el usuario
-    usuario.resetPasswordToken = token;
-    usuario.resetPasswordExpires = tokenExpira;
-    await usuario.save();
-
-    // Enviar correo de recuperación
-    await enviarCorreoRecuperacion(usuario, token);
-
-    res.json({ message: "✅ Se ha enviado un correo con instrucciones para recuperar su contraseña" });
-  } catch (error) {
-    console.error("Error en recuperación de contraseña:", error);
-    res.status(500).json({ error: "❌ Error al procesar la solicitud" });
-  }
-});
-
-// Endpoint para restablecer la contraseña con token
-app.post("/api/reset-password", async (req, res) => {
-  try {
-    const { correoInstitucional, token, nuevaPassword } = req.body;
-    if (!correoInstitucional || !token || !nuevaPassword) {
-      return res.status(400).json({ error: "Faltan datos requeridos" });
-    }
-
-    const usuario = await User.findOne({ correoInstitucional, resetPasswordToken: token });
-    if (!usuario) {
-      return res.status(400).json({ error: "Token inválido o usuario no encontrado" });
-    }
-    if (!usuario.resetPasswordExpires || usuario.resetPasswordExpires < new Date()) {
-      return res.status(400).json({ error: "El token ha expirado. Solicita uno nuevo." });
-    }
-
-    // Actualizar la contraseña
-    const hashedPassword = await bcrypt.hash(nuevaPassword, 10);
-    usuario.password = hashedPassword;
-    usuario.resetPasswordToken = undefined;
-    usuario.resetPasswordExpires = undefined;
-    await usuario.save();
-
-    res.json({ message: "Contraseña restablecida correctamente. Ya puedes iniciar sesión." });
-  } catch (error) {
-    console.error("[RESET PASSWORD] Error:", error);
-    res.status(500).json({ error: "Error al restablecer la contraseña" });
   }
 });
 
 // 📌 Servidor corriendo
 module.exports = app;
+
