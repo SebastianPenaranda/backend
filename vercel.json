@@ -11,20 +11,7 @@
         "src": "/(.*)",
         "dest": "server.js"
       }
-    ],
-
-    
-      "headers": [
-        {
-          "source": "/(.*)",
-          "headers": [
-            {
-              "key": "Content-Security-Policy",
-              "value": "connect-src 'self' http://localhost:5000 https://unpkg.com https://www.unicatolica.edu.co https://app-back-umber.vercel.app;"
-            }
-          ]
-        }
-      ]
+    ]
     
     
   }
