@@ -157,20 +157,21 @@ const enviarCorreoAcceso = async (acceso) => {
 // Función para enviar correo de recuperación de contraseña
 const enviarCorreoRecuperacion = async (usuario, token) => {
     try {
-        const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${token}&email=${usuario.correoInstitucional}`;
         const mailOptions = {
             from: `"Sistema de Control de Acceso" <${process.env.EMAIL_USER}>`,
             to: usuario.correoInstitucional,
             subject: 'Recuperación de Contraseña - Sistema de Control de Acceso',
             html: `
-                <div>
-                    <h2>Recuperación de Contraseña</h2>
-                    <p>Hola ${usuario.nombre} ${usuario.apellido},</p>
-                    <p>Para restablecer tu contraseña, haz clic en el siguiente enlace:</p>
-                    <a href="${resetUrl}">${resetUrl}</a>
-                    <p>O si lo prefieres, copia y pega este token en la aplicación:</p>
-                    <div style="font-size: 18px; font-weight: bold; background: #f4f4f4; padding: 10px; border-radius: 5px; margin: 10px 0; letter-spacing: 1px;">${token}</div>
-                    <p>Este enlace y token expirarán en 1 hora.</p>
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 5px;">
+                    <h2 style="color: #2c3e50; text-align: center;">Recuperación de Contraseña</h2>
+                    <p style="font-size: 16px;">Hola <strong>${usuario.nombre} ${usuario.apellido}</strong>,</p>
+                    <p style="font-size: 16px;">Has solicitado restablecer tu contraseña. Para continuar con el proceso, utiliza el siguiente token en la aplicación:</p>
+                    <div style="font-size: 18px; font-weight: bold; background: #f4f4f4; padding: 15px; border-radius: 5px; margin: 20px 0; text-align: center; letter-spacing: 2px;">${token}</div>
+                    <p style="font-size: 16px; color: #e74c3c;"><strong>Importante:</strong> Este token expirará en 1 hora.</p>
+                    <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #7f8c8d; font-size: 12px; text-align: center;">
+                        <p>Este es un correo automático del Sistema de Control de Acceso.</p>
+                        <p>Por favor, no responda a este mensaje.</p>
+                    </div>
                 </div>
             `
         };
