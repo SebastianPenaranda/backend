@@ -19,8 +19,8 @@ app.use(express.json());
 
 // Conexión a MongoDB
 mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/registro-huellas", {
-  useNewUrlParser: false,
-  useUnifiedTopology: false
+  useNewUrlParser: true,
+  useUnifiedTopology: true
 })
 .then(() => console.log("✅ MongoDB conectado"))
 .catch(err => console.log("❌ Error en MongoDB:", err));
@@ -673,6 +673,15 @@ app.post('/api/personas/importar', upload.single('file'), async (req, res) => {
   try {
     console.log('Recibida petición de importación');
     
+    // Verificar conexión a MongoDB
+    if (mongoose.connection.readyState !== 1) {
+      console.error('MongoDB no está conectado');
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Error de conexión a la base de datos' 
+      });
+    }
+    
     if (!req.file) {
       console.log('No se recibió ningún archivo');
       return res.status(400).json({ success: false, error: 'No se ha proporcionado ningún archivo' });
@@ -729,9 +738,11 @@ app.post('/api/personas/importar', upload.single('file'), async (req, res) => {
           hora: new Date().toLocaleTimeString()
         });
 
-        await nuevaPersona.save();
-        personasValidas.push(nuevaPersona);
-        console.log('Persona importada:', nuevaPersona.nombre, nuevaPersona.apellido);
+        console.log('Intentando guardar persona:', nuevaPersona.nombre, nuevaPersona.apellido);
+        const personaGuardada = await nuevaPersona.save();
+        console.log('Persona guardada con ID:', personaGuardada._id);
+        
+        personasValidas.push(personaGuardada);
       } catch (error) {
         console.error('Error al procesar fila', index + 2, ':', error);
         errores.push(`Fila ${index + 2}: ${error.message}`);
@@ -740,10 +751,18 @@ app.post('/api/personas/importar', upload.single('file'), async (req, res) => {
 
     console.log('Importación completada. Personas válidas:', personasValidas.length, 'Errores:', errores.length);
 
+    // Verificar que las personas se hayan guardado realmente
+    const personasGuardadas = await Huella.find({
+      _id: { $in: personasValidas.map(p => p._id) }
+    });
+
+    console.log('Verificación de guardado:', personasGuardadas.length, 'personas encontradas en la base de datos');
+
     res.json({
       success: true,
       message: `Se importaron ${personasValidas.length} personas correctamente`,
-      errores: errores.length > 0 ? errores : null
+      errores: errores.length > 0 ? errores : null,
+      personasGuardadas: personasGuardadas.length
     });
   } catch (error) {
     console.error('Error al importar personas:', error);
