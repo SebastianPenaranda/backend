@@ -7,15 +7,20 @@ const path = require("path");
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const xlsx = require('xlsx');
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json());
 
 // Conexión a MongoDB
 mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/registro-huellas", {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
+  useNewUrlParser: false,
+  useUnifiedTopology: false
 })
 .then(() => console.log("✅ MongoDB conectado"))
 .catch(err => console.log("❌ Error en MongoDB:", err));
@@ -24,7 +29,15 @@ mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/registro-hu
 const storage = multer.memoryStorage();
 const upload = multer({
   storage: storage,
-  limits: { fileSize: 10 * 1024 * 1024 } // Limita el tamaño del archivo a 10MB
+  limits: { fileSize: 10 * 1024 * 1024 }, // Limita el tamaño del archivo a 10MB
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || 
+        file.mimetype === 'application/vnd.ms-excel') {
+      cb(null, true);
+    } else {
+      cb(new Error('Solo se permiten archivos Excel'));
+    }
+  }
 });
 
 // Esquema para guardar archivos en la base de datos
@@ -652,6 +665,93 @@ app.get('/api/huellas/:id/imagen', async (req, res) => {
     res.send(huella.imagen);
   } catch (err) {
     res.status(500).send('Error al obtener la imagen');
+  }
+});
+
+// Ruta para importar personas desde Excel
+app.post('/api/personas/importar', upload.single('file'), async (req, res) => {
+  try {
+    console.log('Recibida petición de importación');
+    
+    if (!req.file) {
+      console.log('No se recibió ningún archivo');
+      return res.status(400).json({ success: false, error: 'No se ha proporcionado ningún archivo' });
+    }
+
+    console.log('Archivo recibido:', req.file.originalname);
+    console.log('Tipo de archivo:', req.file.mimetype);
+
+    const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    const data = xlsx.utils.sheet_to_json(worksheet);
+
+    console.log('Datos leídos del Excel:', data.length, 'filas');
+
+    // Validar y procesar cada fila
+    const personasValidas = [];
+    const errores = [];
+
+    for (const [index, row] of data.entries()) {
+      try {
+        // Validar campos requeridos
+        if (!row.nombre || !row.apellido || !row.cedula || !row.idInstitucional || !row.rolUniversidad) {
+          errores.push(`Fila ${index + 2}: Faltan campos requeridos`);
+          continue;
+        }
+
+        // Validar que la cédula e ID institucional sean únicos
+        const existeCedula = await Huella.findOne({ cedula: row.cedula });
+        const existeIdInstitucional = await Huella.findOne({ idInstitucional: row.idInstitucional });
+
+        if (existeCedula) {
+          errores.push(`Fila ${index + 2}: La cédula ${row.cedula} ya existe`);
+          continue;
+        }
+
+        if (existeIdInstitucional) {
+          errores.push(`Fila ${index + 2}: El ID institucional ${row.idInstitucional} ya existe`);
+          continue;
+        }
+
+        // Crear nueva persona
+        const nuevaPersona = new Huella({
+          nombre: row.nombre,
+          apellido: row.apellido,
+          cedula: row.cedula,
+          idInstitucional: row.idInstitucional,
+          rolUniversidad: row.rolUniversidad,
+          correoInstitucional: row.correoInstitucional || '',
+          correoPersonal: row.correoPersonal || '',
+          fechaNacimiento: row.fechaNacimiento || '',
+          carnet: row.carnet || '',
+          fecha: new Date().toLocaleDateString(),
+          hora: new Date().toLocaleTimeString()
+        });
+
+        await nuevaPersona.save();
+        personasValidas.push(nuevaPersona);
+        console.log('Persona importada:', nuevaPersona.nombre, nuevaPersona.apellido);
+      } catch (error) {
+        console.error('Error al procesar fila', index + 2, ':', error);
+        errores.push(`Fila ${index + 2}: ${error.message}`);
+      }
+    }
+
+    console.log('Importación completada. Personas válidas:', personasValidas.length, 'Errores:', errores.length);
+
+    res.json({
+      success: true,
+      message: `Se importaron ${personasValidas.length} personas correctamente`,
+      errores: errores.length > 0 ? errores : null
+    });
+  } catch (error) {
+    console.error('Error al importar personas:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al procesar el archivo Excel',
+      detalles: error.message
+    });
   }
 });
 
