@@ -8,6 +8,7 @@ const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const xlsx = require('xlsx');
+const authRoutes = require('./routes/authRoutes');
 
 const app = express();
 app.use(cors({
@@ -17,8 +18,11 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// Configurar rutas de autenticación
+app.use('/api/auth', authRoutes);
+
 // Conexión a MongoDB
-mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/registro-huellas",{
+mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/registro-huellas", {
   useNewUrlParser: true,
   useUnifiedTopology: true
 })
@@ -29,15 +33,7 @@ mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/registro-hu
 const storage = multer.memoryStorage();
 const upload = multer({
   storage: storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // Limita el tamaño del archivo a 10MB
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || 
-        file.mimetype === 'application/vnd.ms-excel') {
-      cb(null, true);
-    } else {
-      cb(new Error('Solo se permiten archivos Excel'));
-    }
-  }
+  limits: { fileSize: 10 * 1024 * 1024 } // Limita el tamaño del archivo a 10MB
 });
 
 // Esquema para guardar archivos en la base de datos
@@ -84,6 +80,8 @@ const UserSchema = new mongoose.Schema({
   correoInstitucional: String,
   password: String,
   role: String,
+  resetPasswordToken: String,
+  resetPasswordExpires: Date,
   __v: Number
 });
 
@@ -671,31 +669,14 @@ app.get('/api/huellas/:id/imagen', async (req, res) => {
 // Ruta para importar personas desde Excel
 app.post('/api/personas/importar', upload.single('file'), async (req, res) => {
   try {
-    console.log('Recibida petición de importación');
-    
-    // Verificar conexión a MongoDB
-    if (mongoose.connection.readyState !== 1) {
-      console.error('MongoDB no está conectado');
-      return res.status(500).json({ 
-        success: false, 
-        error: 'Error de conexión a la base de datos' 
-      });
-    }
-    
     if (!req.file) {
-      console.log('No se recibió ningún archivo');
       return res.status(400).json({ success: false, error: 'No se ha proporcionado ningún archivo' });
     }
-
-    console.log('Archivo recibido:', req.file.originalname);
-    console.log('Tipo de archivo:', req.file.mimetype);
 
     const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
     const data = xlsx.utils.sheet_to_json(worksheet);
-
-    console.log('Datos leídos del Excel:', data.length, 'filas');
 
     // Validar y procesar cada fila
     const personasValidas = [];
@@ -738,38 +719,23 @@ app.post('/api/personas/importar', upload.single('file'), async (req, res) => {
           hora: new Date().toLocaleTimeString()
         });
 
-        console.log('Intentando guardar persona:', nuevaPersona.nombre, nuevaPersona.apellido);
-        const personaGuardada = await nuevaPersona.save();
-        console.log('Persona guardada con ID:', personaGuardada._id);
-        
-        personasValidas.push(personaGuardada);
+        await nuevaPersona.save();
+        personasValidas.push(nuevaPersona);
       } catch (error) {
-        console.error('Error al procesar fila', index + 2, ':', error);
         errores.push(`Fila ${index + 2}: ${error.message}`);
       }
     }
 
-    console.log('Importación completada. Personas válidas:', personasValidas.length, 'Errores:', errores.length);
-
-    // Verificar que las personas se hayan guardado realmente
-    const personasGuardadas = await Huella.find({
-      _id: { $in: personasValidas.map(p => p._id) }
-    });
-
-    console.log('Verificación de guardado:', personasGuardadas.length, 'personas encontradas en la base de datos');
-
     res.json({
       success: true,
       message: `Se importaron ${personasValidas.length} personas correctamente`,
-      errores: errores.length > 0 ? errores : null,
-      personasGuardadas: personasGuardadas.length
+      errores: errores.length > 0 ? errores : null
     });
   } catch (error) {
     console.error('Error al importar personas:', error);
     res.status(500).json({
       success: false,
-      error: 'Error al procesar el archivo Excel',
-      detalles: error.message
+      error: 'Error al procesar el archivo Excel'
     });
   }
 });
