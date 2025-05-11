@@ -168,7 +168,9 @@ const enviarCorreoRecuperacion = async (usuario, token) => {
                     <p>Hola ${usuario.nombre} ${usuario.apellido},</p>
                     <p>Para restablecer tu contraseña, haz clic en el siguiente enlace:</p>
                     <a href="${resetUrl}">${resetUrl}</a>
-                    <p>Este enlace expirará en 1 hora.</p>
+                    <p>O si lo prefieres, copia y pega este token en la aplicación:</p>
+                    <div style="font-size: 18px; font-weight: bold; background: #f4f4f4; padding: 10px; border-radius: 5px; margin: 10px 0; letter-spacing: 1px;">${token}</div>
+                    <p>Este enlace y token expirarán en 1 hora.</p>
                 </div>
             `
         };
