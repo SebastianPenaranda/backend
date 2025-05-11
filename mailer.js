@@ -163,29 +163,15 @@ const enviarCorreoRecuperacion = async (usuario, token) => {
             to: usuario.correoInstitucional,
             subject: 'Recuperación de Contraseña - Sistema de Control de Acceso',
             html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 5px;">
-                    <h2 style="color: #2c3e50;">Recuperación de Contraseña</h2>
-                    <p>Estimado(a) ${usuario.nombre} ${usuario.apellido},</p>
-                    <p>Hemos recibido una solicitud para restablecer su contraseña.</p>
-                    <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
-                        <p>Para restablecer su contraseña, haga clic en el siguiente botón:</p>
-                        <div style="text-align: center; margin: 20px 0;">
-                            <a href="${resetUrl}" style="background-color: #3498db; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">
-                                Restablecer Contraseña
-                            </a>
-                        </div>
-                        <p style="font-size: 12px; color: #7f8c8d;">Si el botón no funciona, copie y pegue el siguiente enlace en su navegador:</p>
-                        <p style="font-size: 12px; color: #7f8c8d; word-break: break-all;">${resetUrl}</p>
-                    </div>
-                    <p><strong>Importante:</strong> Este enlace expirará en 1 hora por razones de seguridad.</p>
-                    <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #7f8c8d; font-size: 12px; text-align: center;">
-                        <p>Si no solicitó este cambio, por favor ignore este correo.</p>
-                        <p>Este es un correo automático del Sistema de Control de Acceso.</p>
-                    </div>
+                <div>
+                    <h2>Recuperación de Contraseña</h2>
+                    <p>Hola ${usuario.nombre} ${usuario.apellido},</p>
+                    <p>Para restablecer tu contraseña, haz clic en el siguiente enlace:</p>
+                    <a href="${resetUrl}">${resetUrl}</a>
+                    <p>Este enlace expirará en 1 hora.</p>
                 </div>
             `
         };
-
         await transporter.sendMail(mailOptions);
         return true;
     } catch (error) {

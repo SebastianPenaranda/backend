@@ -8,6 +8,7 @@ const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const xlsx = require('xlsx');
+const { enviarCorreoRecuperacion } = require("./mailer");
 
 const app = express();
 app.use(cors({
@@ -19,7 +20,7 @@ app.use(cors({
 app.use(express.json());
 
 // Conexión a MongoDB
-mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/registro-huellas", {
+mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/registro-huellas",{
   useNewUrlParser: true,
   useUnifiedTopology: true
 })
@@ -77,7 +78,9 @@ const UserSchema = new mongoose.Schema({
   correoInstitucional: String,
   password: String,
   role: String,
-  __v: Number
+  __v: Number,
+  resetPasswordToken: String, // Campo para token de recuperación
+  resetPasswordExpires: Date  // Campo para expiración del token
 });
 
 // Índice compuesto para permitir duplicados de cédula/correo con diferente rol
@@ -85,7 +88,13 @@ UserSchema.index({ cedula: 1, role: 1 }, { unique: true });
 UserSchema.index({ correoPersonal: 1, role: 1 }, { unique: true });
 UserSchema.index({ correoInstitucional: 1, role: 1 }, { unique: true });
 
-const User = mongoose.model("User", UserSchema, "users");
+let User;
+try {
+  User = mongoose.model("User", UserSchema, "users");
+} catch (e) {
+  // Si no existe el modelo, mostrar advertencia
+  console.warn("El modelo User.js no existe. Debes crearlo en backend/models/User.js");
+}
 
 // Esquema de Huellas
 const HuellaSchema = new mongoose.Schema({
@@ -149,19 +158,7 @@ const HuellaSchema = new mongoose.Schema({
 });
 const Huella = mongoose.model("Huella", HuellaSchema);
 
-const handleRecuperarPassword = async () => {
-  setMensajeRecuperar("");
-  if (!correoRecuperar) {
-    setMensajeRecuperar("Por favor ingresa tu correo institucional.");
-    return;
-  }
-  try {
-    await axios.post("http://localhost:5000/recuperar-password", { correoInstitucional: correoRecuperar });
-    setMensajeRecuperar("Si el correo existe, recibirás un mensaje con instrucciones para restablecer tu contraseña.");
-  } catch (error) {
-    setMensajeRecuperar(error.response?.data?.error || "Error al solicitar recuperación.");
-  }
-};
+
 
 // Esquema de Accesos (Entradas y Salidas)
 const AccesoSchema = new mongoose.Schema({
@@ -675,53 +672,73 @@ app.get('/api/huellas/:id/imagen', async (req, res) => {
   }
 });
 
-app.post("/recuperar-password", async (req, res) => {
-  try {
-    const { correoInstitucional } = req.body;
-    const usuario = await User.findOne({ correoInstitucional });
-    if (!usuario) {
-      return res.status(404).json({ error: "❌ Usuario no encontrado" });
+// Recuperar contraseña: solicitar token
+app.post("/api/forgot-password", async (req, res) => {
+    try {
+        const { correoInstitucional } = req.body;
+        const usuario = await User.findOne({ correoInstitucional });
+        if (!usuario) {
+            return res.status(404).json({ error: "Usuario no encontrado" });
+        }
+
+        // Generar token y fecha de expiración
+        const token = require('crypto').randomBytes(20).toString("hex");
+        const tokenExpira = new Date();
+        tokenExpira.setHours(tokenExpira.getHours() + 1);
+
+        usuario.resetPasswordToken = token;
+        usuario.resetPasswordExpires = tokenExpira;
+        await usuario.save();
+
+        await enviarCorreoRecuperacion(usuario, token);
+
+        res.json({ success: true, message: "Se ha enviado un correo con instrucciones para recuperar su contraseña" });
+    } catch (error) {
+        console.error("Error en recuperación de contraseña:", error);
+        res.status(500).json({ error: "Error al procesar la solicitud" });
     }
-
-    const token = crypto.randomBytes(32).toString('hex');
-    const tokenExpira = new Date();
-    tokenExpira.setHours(tokenExpira.getHours() + 1);
-
-    usuario.resetPasswordToken = token;
-    usuario.resetPasswordExpires = tokenExpira;
-    await usuario.save();
-
-    await enviarCorreoRecuperacion(usuario, token);
-
-    res.json({ message: "✅ Se ha enviado un correo con instrucciones para recuperar su contraseña" });
-  } catch (error) {
-    console.error("Error en recuperación de contraseña:", error);
-    res.status(500).json({ error: "❌ Error al procesar la solicitud" });
-  }
 });
 
-app.post("/reset-password", async (req, res) => {
-  try {
-    const { correoInstitucional, token, nuevaPassword } = req.body;
-    const usuario = await User.findOne({ correoInstitucional, resetPasswordToken: token });
-    if (!usuario) {
-      return res.status(400).json({ error: "Token inválido o usuario no encontrado" });
+// Verificar token (opcional, si tu frontend lo usa)
+app.post("/api/verify-token", async (req, res) => {
+    try {
+        const { correoInstitucional, token } = req.body;
+        const usuario = await User.findOne({ correoInstitucional, resetPasswordToken: token });
+        if (!usuario) {
+            return res.status(400).json({ error: "Token inválido o usuario no encontrado" });
+        }
+        if (!usuario.resetPasswordExpires || usuario.resetPasswordExpires < new Date()) {
+            return res.status(400).json({ error: "El token ha expirado. Solicita uno nuevo." });
+        }
+        res.json({ success: true, message: "Token válido" });
+    } catch (error) {
+        res.status(500).json({ error: "Error al verificar el token" });
     }
-    if (!usuario.resetPasswordExpires || usuario.resetPasswordExpires < new Date()) {
-      return res.status(400).json({ error: "El token ha expirado. Solicita uno nuevo." });
+});
+
+// Restablecer contraseña
+app.post("/api/reset-password", async (req, res) => {
+    try {
+        const { correoInstitucional, token, nuevaPassword } = req.body;
+        const usuario = await User.findOne({ correoInstitucional, resetPasswordToken: token });
+        if (!usuario) {
+            return res.status(400).json({ error: "Token inválido o usuario no encontrado" });
+        }
+        if (!usuario.resetPasswordExpires || usuario.resetPasswordExpires < new Date()) {
+            return res.status(400).json({ error: "El token ha expirado. Solicita uno nuevo." });
+        }
+
+        const hashedPassword = await require('bcryptjs').hash(nuevaPassword, 10);
+        usuario.password = hashedPassword;
+        usuario.resetPasswordToken = undefined;
+        usuario.resetPasswordExpires = undefined;
+        await usuario.save();
+
+        res.json({ success: true, message: "Contraseña restablecida correctamente. Ya puedes iniciar sesión." });
+    } catch (error) {
+        console.error("[RESET PASSWORD] Error:", error);
+        res.status(500).json({ error: "Error al restablecer la contraseña" });
     }
-
-    const hashedPassword = await bcrypt.hash(nuevaPassword, 10);
-    usuario.password = hashedPassword;
-    usuario.resetPasswordToken = undefined;
-    usuario.resetPasswordExpires = undefined;
-    await usuario.save();
-
-    res.json({ message: "Contraseña restablecida correctamente. Ya puedes iniciar sesión." });
-  } catch (error) {
-    console.error("[RESET PASSWORD] Error:", error);
-    res.status(500).json({ error: "Error al restablecer la contraseña" });
-  }
 });
 
 // Ruta para importar personas desde Excel
