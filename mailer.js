@@ -122,7 +122,7 @@ const enviarCorreoRegistro = async (usuario, passwordOriginal) => {
 // Función para enviar correo de acceso
 const enviarCorreoAcceso = async (acceso) => {
     try {
-        const mailOptions = {
+        const mailOptions ={
             from: `"Sistema de Control de Acceso" <${process.env.EMAIL_USER}>`,
             to: acceso.correoInstitucional,
             subject: `Registro de ${acceso.tipo} - Sistema de Control de Acceso`,
