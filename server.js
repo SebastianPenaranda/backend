@@ -198,20 +198,6 @@ app.post("/api/registrar-visitante", async (req, res) => {
       return res.status(400).json({ error: "❌ Faltan datos requeridos" });
     }
 
-    // Verificar si el número de tarjeta ya existe
-    const tarjetaExistente = await Huella.findOne({ numeroTarjeta: numeroTarjeta });
-    
-    if (tarjetaExistente) {
-      return res.status(400).json({ 
-        error: "❌ Ya existe una persona registrada con ese número de tarjeta",
-        existingUser: {
-          nombre: tarjetaExistente.nombre,
-          apellido: tarjetaExistente.apellido,
-          rol: tarjetaExistente.rolUniversidad
-        }
-      });
-    }
-
     // Calcular fecha de expiración (1 mes desde hoy)
     const fechaExpiracion = new Date();
     fechaExpiracion.setMonth(fechaExpiracion.getMonth() + 1);
@@ -229,7 +215,7 @@ app.post("/api/registrar-visitante", async (req, res) => {
     });
 
     await visitante.save();
-    res.status(200).json({ success: true, message: "✅ Visitante registrado exitosamente" });
+    res.status(200).json({ message: "✅ Visitante registrado exitosamente" });
   } catch (error) {
     console.error("Error al registrar visitante:", error);
     res.status(500).json({ error: "❌ Error al registrar visitante" });
@@ -506,61 +492,6 @@ app.get("/api/buscar-carnet/:carnet", async (req, res) => {
     console.error("Error al buscar por carnet:", error);
     res.status(500).json({ 
       error: "❌ Error al buscar en la base de datos" 
-    });
-  }
-});
-
-// 📌 Ruta para obtener historial de accesos de una persona
-app.get("/api/historial-accesos/:carnet", async (req, res) => {
-  try {
-    const { carnet } = req.params;
-    
-    if (!carnet) {
-      return res.status(400).json({ 
-        error: "❌ El número de carnet es requerido" 
-      });
-    }
-
-    // Buscar todos los accesos de esta persona, ordenados por fecha y hora más recientes
-    const historial = await Acceso.find({ 
-      $or: [{ carnet }, { numeroTarjeta: carnet }]
-    })
-    .sort({ fecha: -1, horaEntrada: -1, horaSalida: -1 })
-    .limit(10); // Limitar a los últimos 10 registros
-
-    // Transformar los datos para crear una lista cronológica de entradas y salidas
-    const historialCronologico = [];
-    
-    historial.forEach(acceso => {
-      if (acceso.horaEntrada) {
-        historialCronologico.push({
-          tipo: 'entrada',
-          fecha: acceso.fecha,
-          hora: acceso.horaEntrada,
-          timestamp: new Date(`${acceso.fecha}T${acceso.horaEntrada}`)
-        });
-      }
-      if (acceso.horaSalida) {
-        historialCronologico.push({
-          tipo: 'salida',
-          fecha: acceso.fecha,
-          hora: acceso.horaSalida,
-          timestamp: new Date(`${acceso.fecha}T${acceso.horaSalida}`)
-        });
-      }
-    });
-
-    // Ordenar cronológicamente por timestamp (más reciente primero)
-    historialCronologico.sort((a, b) => b.timestamp - a.timestamp);
-
-    res.json({ 
-      historial: historialCronologico.slice(0, 5), // Solo los últimos 5
-      message: "✅ Historial obtenido exitosamente" 
-    });
-  } catch (error) {
-    console.error("Error al obtener historial:", error);
-    res.status(500).json({ 
-      error: "❌ Error al obtener el historial" 
     });
   }
 });
