@@ -536,7 +536,7 @@ app.post("/api/registrar-acceso", async (req, res) => {
     if (!carnet) {
       return res.status(400).json({ error: "❌ Se requiere carnet o número de tarjeta" });
     }
-    // Buscar persona por carnet o numeroTarjeta
+    // Buscar  persona por carnet o numeroTarjeta
     const persona = await Huella.findOne({ $or: [ { carnet }, { numeroTarjeta: carnet } ] });
     console.log("[ACCESO] Persona encontrada:", persona);
     if (!persona) {
